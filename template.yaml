@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SAM template for Crypto API with QueryPrice and GetHistory functions
+
+Globals:
+  Function:
+    Timeout: 100  # Global timeout setting
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+  Api:
+    TracingEnabled: true
+
+Resources:
+  # Lambda function for querying price
+  QueryPriceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/microservices/cryptoPrice/
+      Handler: handler.queryPrice
+      Runtime: nodejs18.x
+      MemorySize: 256
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        QueryPriceEvent:
+          Type: Api
+          Properties:
+            Path: /query-price
+            Method: post
+
+  # Lambda function for getting history
+  GetHistoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/microservices/searchHistory/
+      Handler: handler.getHistory
+      Runtime: nodejs18.x
+      MemorySize: 256
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Events:
+        GetHistoryEvent:
+          Type: Api
+          Properties:
+            Path: /history
+            Method: get
+
+  # IAM Role for Lambda functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'logs:*'
+                Resource: '*'
+              - Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource: '*'
+
+  # API Gateway configuration
+  CryptoApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: CryptoApi
+      StageName: prod
+      DefinitionBody:
+        swagger: "2.0"
+        info:
+          title: "Crypto API"
+          version: "1.0"
+        paths:
+          /query-price:
+            post:
+              operationId: queryPrice
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QueryPriceFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+          /history:
+            get:
+              operationId: getHistory
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetHistoryFunction.Arn}/invocations
+                httpMethod: GET
+                type: aws_proxy
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway URL"
+    Value: !Sub "https://${CryptoApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  QueryPriceFunctionArn:
+    Description: "QueryPrice Lambda Function ARN"
+    Value: !GetAtt QueryPriceFunction.Arn
+  GetHistoryFunctionArn:
+    Description: "GetHistory Lambda Function ARN"
+    Value: !GetAtt GetHistoryFunction.Arn
+  LambdaExecutionRoleArn:
+    Description: "IAM Role ARN for Lambda Functions"
+    Value: !GetAtt LambdaExecutionRole.Arn
